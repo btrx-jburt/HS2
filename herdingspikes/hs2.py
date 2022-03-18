@@ -910,16 +910,15 @@ class HSClustering(object):
         ylim -- limits of the vertical axis of the plots. If None, try to figure
         them out.
         """
-        nrows = np.ceil(len(units) / ncols)
-        cutouts = self.spikes.Shape
+        nrows = int(np.ceil(len(units) / ncols))
+        cutouts = self.spikes.Shape.values
 
         # all this is to determine suitable ylims TODO probe should provide
-        yoff = 0
         if ylim is None:
-            meanshape = np.mean(cutouts.loc[:2000], axis=0)
+            meanshape = np.mean(cutouts, axis=0)
             yoff = -meanshape[0]
             maxy, miny = meanshape.max() + yoff, meanshape.min() + yoff
-            varshape = np.var(cutouts.loc[:1000].values, axis=0)
+            varshape = np.var(cutouts, axis=0)
             varmin = varshape[np.argmin(meanshape)]
             varmax = varshape[np.argmax(meanshape)]
             maxy += 4.0 * np.sqrt(varmax)
@@ -929,14 +928,15 @@ class HSClustering(object):
         plt.figure(figsize=(3 * ncols, 3 * nrows))
         for i, cl in enumerate(units):
             inds = np.where(self.spikes.cl == cl)[0][:max_shapes]
-            meanshape = np.mean(cutouts.loc[inds], axis=0)
+            meanshape = np.mean(cutouts[inds], axis=0)
             yoff = -meanshape[0]
 
             plt.subplot(nrows, ncols, i + 1)
-            [plt.plot(v - v[0], "gray", alpha=0.3) for v in
-             cutouts.loc[inds].values]
-            plt.plot(meanshape + yoff, c=plt.cm.hsv(self.clusters.Color[cl]),
-                     lw=4)
+            [plt.plot(v - v[0], "gray", alpha=0.3) for v in cutouts[inds]]
+            plt.plot(
+                meanshape + yoff,
+                color=plt.cm.hsv(self.clusters.Color[cl]), lw=4
+            )
             plt.ylim(ylim)
             plt.title("Cluster " + str(cl))
 
