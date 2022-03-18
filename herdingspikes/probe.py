@@ -1,17 +1,21 @@
 from __future__ import division
-import numpy as np
-import json
-from matplotlib import pyplot as plt
-from .probe_functions.readUtils import read_flat
-from .probe_functions.readUtils import openHDF5file, getHDF5params
-from .probe_functions.readUtils import readHDF5t_100, readHDF5t_101
-from .probe_functions.readUtils import readHDF5t_100_i, readHDF5t_101_i
-from .probe_functions.neighborMatrixUtils import createNeighborMatrix
-import h5py
+
 import ctypes
 import os.path
-from scipy.spatial.distance import cdist
 import warnings
+
+import numpy as np
+from numpy.typing import NDArray
+from matplotlib import pyplot as plt
+
+from scipy.spatial.distance import cdist
+from .probe_functions.neighborMatrixUtils import createNeighborMatrix
+from .probe_functions.readUtils import getHDF5params
+from .probe_functions.readUtils import openHDF5file
+from .probe_functions.readUtils import readHDF5t_100
+from .probe_functions.readUtils import readHDF5t_100_i
+from .probe_functions.readUtils import readHDF5t_101
+from .probe_functions.readUtils import readHDF5t_101_i
 
 this_file_path = os.path.dirname(os.path.abspath(__file__))
 
@@ -35,44 +39,48 @@ def create_probe_files(pos_file, neighbor_file, radius, ch_positions):
             f.write("{},\n".format(str(list(neighbors))[1:-1]))
     f.close()
 
+
 def in_probes_dir(file):
-    probe_path1 = os.getenv('HS2_PROBE_PATH', this_file_path)    
+    probe_path1 = os.getenv('HS2_PROBE_PATH', this_file_path)
     probe_path = os.path.join(probe_path1, "probes")
     if not os.path.exists(probe_path):
         os.mkdir(probe_path)
     return os.path.join(probe_path, file)
 
+
 def in_probe_info_dir(file):
-    probe_path1 = os.getenv('HS2_PROBE_PATH', this_file_path)    
+    probe_path1 = os.getenv('HS2_PROBE_PATH', this_file_path)
     probe_path = os.path.join(probe_path1, "probe_info")
     if not os.path.exists(probe_path):
         os.mkdir(probe_path)
     return os.path.join(probe_path, file)
 
+
 class NeuralProbe(object):
     def __init__(
-        self,
-        num_channels,
-        noise_amp_percent,
-        inner_radius,
-        fps,
-        positions_file_path,
-        neighbors_file_path,
-        neighbor_radius,
-        event_length,
-        peak_jitter,
-        masked_channels=[],
-        spike_peak_duration=None,
-        noise_duration=None,
+            self,
+            num_channels: int,
+            noise_amp_percent,
+            inner_radius,
+            fps,
+            positions_file_path,
+            neighbors_file_path,
+            neighbor_radius,
+            event_length: float,
+            peak_jitter: float,
+            masked_channels=None,
+            spike_peak_duration=None,
+            noise_duration=None,
     ):
         if neighbor_radius is not None:
             createNeighborMatrix(
-                neighbors_file_path, positions_file_path, neighbor_radius
-            )
+                neighbors_file_path, positions_file_path, neighbor_radius)
+
         self.fps = fps
         self.num_channels = num_channels
         self.spike_peak_duration = self._deprecate_or_convert(
-            spike_peak_duration, event_length, "spike_peak_duration", "event_length"
+            spike_peak_duration, event_length, "spike_peak_duration",
+            "event_length"
         )
         self.noise_duration = self._deprecate_or_convert(
             noise_duration, peak_jitter, "noise_duration", "peak_jitter"
@@ -80,10 +88,12 @@ class NeuralProbe(object):
         self.noise_amp_percent = noise_amp_percent
         self.positions_file_path = positions_file_path
         self.neighbors_file_path = neighbors_file_path
-        self.masked_channels = masked_channels
+        self.masked_channels = masked_channels or []
         self.inner_radius = inner_radius
-        if masked_channels is None:
-            self.masked_channels = []
+
+        self.positions: NDArray = None
+        self.neighbors: list[list] = None
+        self.max_neighbors: int = None
 
         self.loadPositions(positions_file_path)
         self.loadNeighbors(neighbors_file_path)
@@ -120,11 +130,11 @@ class NeuralProbe(object):
             return int(new_var * self.fps / 1000)
 
     # Show visualization of probe
-    def show(self, show_neighbors=[10], figwidth=3):
+    def show(self, show_neighbors=None, figwidth=3, annotate=False):
         xmax, ymax = self.positions.max(0)
-        xmin, ymin = self.positions.min(0)
         ratio = ymax / xmax
         plt.figure(figsize=(figwidth, figwidth * ratio))
+        show_neighbors = show_neighbors or []
         for ch in show_neighbors:
             for neighbor in self.neighbors[ch]:
                 plt.plot(
@@ -135,38 +145,37 @@ class NeuralProbe(object):
                 )
         plt.scatter(*self.positions.T)
         plt.scatter(*self.positions[self.masked_channels].T, c="r")
-        for i, pos in enumerate(self.positions):
-            plt.annotate(i, pos)
+        if annotate:
+            for i, pos in enumerate(self.positions):
+                plt.annotate(i, pos)
 
     def Read(self, t0, t1):
         raise NotImplementedError(
-            "The Read function is not implemented for \
-            this probe"
-        )
+            "The Read function is not implemented for this probe")
 
     def getChannelsPositions(self, channels):
         channel_positions = []
         for channel in channels:
             if channel >= self.num_channels:
                 raise ValueError(
-                    "Channel index too large, maximum " + self.num_channels
-                )
+                    "Channel index too large, maximum " + self.num_channels)
             else:
                 channel_positions.append(self.positions[channel])
         return channel_positions
 
+
 class BioCam(NeuralProbe):
     def __init__(
-        self,
-        data_file_path=None,
-        num_channels=4096,
-        fps=0,
-        noise_amp_percent=1,
-        inner_radius=1.75,
-        neighbor_radius=None,
-        masked_channels=[0],
-        event_length=DEFAULT_EVENT_LENGTH,
-        peak_jitter=DEFAULT_PEAK_JITTER,
+            self,
+            data_file_path=None,
+            num_channels=4096,
+            fps=0,
+            noise_amp_percent=1,
+            inner_radius=1.75,
+            neighbor_radius=None,
+            masked_channels=[0],
+            event_length=DEFAULT_EVENT_LENGTH,
+            peak_jitter=DEFAULT_PEAK_JITTER,
     ):
         self.data_file = data_file_path
         if data_file_path is not None:
@@ -202,8 +211,10 @@ class BioCam(NeuralProbe):
                 self.num_channels,
                 "channels recorded, fixing positions/neighbors",
             )
-            print("# This may break - known to work only for rectangular sections!")
-            recorded_channels = self.d["3BRecInfo"]["3BMeaStreams"]["Raw"]["Chs"]
+            print(
+                "# This may break - known to work only for rectangular sections!")
+            recorded_channels = self.d["3BRecInfo"]["3BMeaStreams"]["Raw"][
+                "Chs"]
         else:
             recorded_channels = None
 
@@ -233,7 +244,8 @@ class BioCam(NeuralProbe):
             for i, c in enumerate(recorded_channels):
                 inds[i] = np.where(
                     np.all(
-                        (self.positions - np.array([c[1] - 1, c[0] - 1])) == 0, axis=1
+                        (self.positions - np.array([c[1] - 1, c[0] - 1])) == 0,
+                        axis=1
                     )
                 )[0]
             self.positions = self.positions[inds].astype(int)
@@ -247,7 +259,7 @@ class BioCam(NeuralProbe):
             print("# Number of channels:", self.num_channels)
             lm = np.zeros((64, 64), dtype=int) - 1
             # oddness because x/y are transposed in brw
-            lm[y0 : y1 + 1, x0 : x1 + 1] = np.arange(self.num_channels).T.reshape(
+            lm[y0: y1 + 1, x0: x1 + 1] = np.arange(self.num_channels).T.reshape(
                 y1 - y0 + 1, x1 - x0 + 1
             )
             self.neighbors = [lm.flatten()[self.neighbors[i]] for i in inds]
@@ -257,17 +269,18 @@ class BioCam(NeuralProbe):
     def Read(self, t0, t1):
         return self.read_function(self.d, t0, t1, self.num_channels)
 
+
 class RecordingExtractor(NeuralProbe):
     def __init__(
-        self,
-        re,
-        noise_amp_percent=1,
-        inner_radius=60,
-        neighbor_radius=60,
-        masked_channels=None,
-        xy=None,
-        event_length=DEFAULT_EVENT_LENGTH,
-        peak_jitter=DEFAULT_PEAK_JITTER,
+            self,
+            re,
+            noise_amp_percent=1,
+            inner_radius=60,
+            neighbor_radius=60,
+            masked_channels=None,
+            xy=None,
+            event_length=DEFAULT_EVENT_LENGTH,
+            peak_jitter=DEFAULT_PEAK_JITTER,
     ):
         self.d = re
         positions_file_path = in_probe_info_dir("positions_spikeextractor")
@@ -316,8 +329,5 @@ class RecordingExtractor(NeuralProbe):
     def Read(self, t0, t1):
         return (
             self.d.get_traces(
-                channel_ids=self.d.get_channel_ids(), start_frame=t0, end_frame=t1
-            )
-            .ravel()
-            .astype(ctypes.c_short)
-        )
+                channel_ids=self.d.get_channel_ids(), start_frame=t0,
+                end_frame=t1).ravel().astype(ctypes.c_short))
