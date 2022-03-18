@@ -971,7 +971,7 @@ class HSClustering(object):
         else:
             inds = np.arange(n_spikes)
 
-        c = plt.cm.hsv(self.clusters.Color[self.spikes.cl]).values
+        c = plt.cm.hsv(self.clusters.Color[self.spikes.cl])
         ax.scatter(x[inds], y[inds], c=c[inds], **kwargs)
         if show_labels and self.IsClustered:
             ctr_x, ctr_y = self.clusters.ctr_x, self.clusters.ctr_y
