@@ -430,8 +430,7 @@ class HSClustering(object):
                     elif "Shapes" in list(_f.keys()):
                         _f.close()
                         self.LoadHDF5_legacy_detected(
-                            f, append=not_first_file, **kwargs
-                        )
+                            f, append=not_first_file, **kwargs)
 
                 elif filetype == ".bin":
                     if cutout_length is None:
@@ -1032,7 +1031,7 @@ class HSClustering(object):
             (c_ctrx[cl_ix] - c_ctrx) ** 2 + (c_ctry[cl_ix] - c_ctry) ** 2)
         neighbor_cl_ix = np.where(dists < radius)[0]
 
-        ax = list(
+        ax = [
             plt.subplot2grid(
                 (len(neighbor_cl_ix) + 1, 4),
                 (0, 0),
@@ -1040,7 +1039,7 @@ class HSClustering(object):
                 colspan=3,
                 facecolor="k"
             )
-        )
+        ]
 
         for i in range(len(neighbor_cl_ix) + 1):
             ax.append(
@@ -1058,7 +1057,7 @@ class HSClustering(object):
             inds = np.where(s_cl == cl_t)[0][:max_cluster_spikes]
             ax[0].scatter(
                 s_x[inds], s_y[inds],
-                c=plt.cm.hsv(c_color[cl_t]), s=3, alpha=alpha
+                color=plt.cm.hsv(c_color[cl_t]), s=3, alpha=alpha
             )
             if show_cluster_numbers:
                 ax[0].text(
