@@ -408,6 +408,10 @@ class HSClustering(object):
 
         - with an instance of HSDetection as a single argument. """
 
+        self.clusters: pd.DataFrame = None
+        self.NClusters: int = None
+        self.unclustered_label: int = None
+
         # store the memmapped shapes
         self.shapecache = []
 
@@ -516,6 +520,7 @@ class HSClustering(object):
                 self.NClusters - 1,
             )
             self.spikes.loc[self.spikes.cl == -1, "cl"] = self.NClusters - 1
+            self.unclustered_label = self.NClusters - 1
 
         _cl = self.spikes.groupby(["cl"])
         _x_mean = _cl.x.mean()
@@ -991,7 +996,8 @@ class HSClustering(object):
             show_cluster_numbers=True,
             alpha=0.4,
             show_unclustered=False,
-            max_shapes=1000,
+            max_cluster_spikes=1000,
+            max_cluster_shapes=100,
             figsize=(8, 6),
     ):
         """
@@ -1004,69 +1010,87 @@ class HSClustering(object):
         alpha -- transparency of spike points
         show_unclustered -- whether to show unclustered spikes (left by certain
         clustering algorithms)
-        max_shapes -- maximum number of shapes to be plotted
+        max_cluster_spikes -- max number of spikes to plot per cluster
+        max_cluster_shapes -- max number of shapes (waveforms) to plot
         figsize -- the size of the figure
         """
 
         plt.figure(figsize=figsize)
 
-        cx, cy = self.clusters["ctr_x"][cl], self.clusters["ctr_y"][cl]
-        dists = np.sqrt(
-            (cx - self.clusters["ctr_x"]) ** 2 + (
-                    cy - self.clusters["ctr_y"]) ** 2
-        )
-        clInds = np.where(dists < radius)[0]
+        cl_ix = list(self.clusters.index.values).index(cl)
+        del cl
 
-        ax = []
-        ax.append(
+        # spike x, y, cluster
+        s_x, s_y, s_cl = self.spikes[['x', 'y', 'cl']].values.T
+        shapes = np.array(self.spikes.Shape.values)
+
+        # cluster ctr_x, ctr_y, color
+        c_ctrx, c_ctry, c_color = self.clusters[
+            ['ctr_x', 'ctr_y', 'Color']].values.T
+
+        dists = np.sqrt(
+            (c_ctrx[cl_ix] - c_ctrx) ** 2 + (c_ctry[cl_ix] - c_ctry) ** 2)
+        neighbor_cl_ix = np.where(dists < radius)[0]
+
+        ax = list(
             plt.subplot2grid(
-                (len(clInds) + 1, 4),
+                (len(neighbor_cl_ix) + 1, 4),
                 (0, 0),
-                rowspan=len(clInds) + 1,
+                rowspan=len(neighbor_cl_ix) + 1,
                 colspan=3,
-                facecolor="k",
+                facecolor="k"
             )
         )
-        for i in range(len(clInds) + 1):
-            ax.append(plt.subplot2grid((len(clInds) + 1, 4), (i, 3), colspan=1))
+
+        for i in range(len(neighbor_cl_ix) + 1):
+            ax.append(
+                plt.subplot2grid(
+                    (len(neighbor_cl_ix) + 1, 4),
+                    (i, 3),
+                    colspan=1
+                )
+            )
             ax[i + 1].axis("off")
-            if i > 0:
+            if i:
                 ax[i].get_shared_y_axes().join(ax[i], ax[i + 1])
 
-        for i_cl, cl_t in enumerate(clInds):
-            cx, cy = self.clusters["ctr_x"][cl_t], self.clusters["ctr_y"][cl_t]
-            inds = np.where(self.spikes.cl == cl_t)[0][:max_shapes]
-            x, y = self.spikes.x[inds], self.spikes.y[inds]
+        for i_cl, cl_t in enumerate(neighbor_cl_ix):
+            inds = np.where(s_cl == cl_t)[0][:max_cluster_spikes]
             ax[0].scatter(
-                x, y, c=plt.cm.hsv(self.clusters["Color"][cl_t]), s=3,
-                alpha=alpha
+                s_x[inds], s_y[inds],
+                c=plt.cm.hsv(c_color[cl_t]), s=3, alpha=alpha
             )
             if show_cluster_numbers:
-                ax[0].text(cx - 0.1, cy, str(cl_t), fontsize=16, color="w")
-            for i in inds[:30]:
-                ax[i_cl + 2].plot(self.spikes.Shape[i], color=(0.8, 0.8, 0.8),
-                                  lw=0.8)
+                ax[0].text(
+                    c_ctrx[cl_t] - 0.1, c_ctry[cl_t],
+                    str(cl_t), fontsize=16, color="w"
+                )
+            for i in inds[:max_cluster_shapes]:
+                ax[i_cl + 2].plot(shapes[i], color=(0.8, 0.8, 0.8), lw=0.8)
+
             if len(inds) > 1:
                 ax[i_cl + 2].plot(
-                    np.mean(self.spikes.Shape[inds].values, axis=0),
-                    color=plt.cm.hsv(self.clusters["Color"][cl_t]),
+                    np.mean(shapes[inds], axis=0),
+                    color=plt.cm.hsv(c_color[cl_t]),
                     lw=2,
                 )
 
         ax[0].axis("equal")
 
         # show unclustered spikes (if any)
-        if show_unclustered:
-            cx, cy = self.clusters["ctr_x"][cl], self.clusters["ctr_y"][cl]
-            inds = np.where(self.spikes.cl == self.NClusters - 1)[0][
-                   :max_shapes]
-            x, y = self.spikes.x[inds].values, self.spikes.y[inds].values
-            dists = np.sqrt((cx - x) ** 2 + (cy - y) ** 2)
-            spInds = np.where(dists < radius)[0]
-            if len(spInds):
-                ax[0].scatter(x[spInds], y[spInds], c="w", s=3)
-                for i in spInds[:20]:
-                    ax[1].plot(self.spikes.Shape[i], color=(0.4, 0.4, 0.4))
-                ax[1].plot(np.mean(self.spikes.Shape[spInds].values, axis=0),
-                           color="k")
+        if show_unclustered and self.unclustered_label is not None:
+            # only proceed if unclustered spikes were not dropped
+            if self.unclustered_label in s_cl:
+                inds = np.where(
+                    s_cl == self.unclustered_label)[0][:max_cluster_spikes]
+                x, y = s_x[inds], s_y[inds]
+                dists = np.sqrt(
+                    (c_ctrx[cl_ix] - x) ** 2 + (c_ctry[cl_ix] - y) ** 2)
+                spInds = np.where(dists < radius)[0]
+                if len(spInds):
+                    ax[0].scatter(x[spInds], y[spInds], c="w", s=3)
+                    for i in spInds[:max_cluster_shapes]:
+                        ax[1].plot(shapes[i], color=(0.4, 0.4, 0.4))
+                    if len(spInds) > 1:
+                        ax[1].plot(np.mean(shapes[spInds], axis=0), color="k")
         return ax
